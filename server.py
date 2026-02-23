@@ -102,6 +102,7 @@ mcp = FastMCP(
 
 try:
     _service = ValidationService()
+    _service.reload_logic()  # always start with fresh rules from GitHub
     _init_error = None
 except Exception as e:
     _service = None

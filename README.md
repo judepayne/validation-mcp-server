@@ -64,6 +64,8 @@ The server exposes 26 tools, grouped by concern:
 | `list_logic_files` | Browse cached rule files as a directory tree |
 | `read_logic_file` | Read the source of a specific rule file |
 
+> **Cache freshness**: The server always calls `reload_logic()` at startup, so rules are fetched fresh from GitHub every time Claude Desktop launches or restarts the MCP server. After startup, configs are automatically refreshed every 30 minutes during a session. You can also trigger an immediate refresh at any time via `reload_logic()`.
+
 ### Loan data
 
 | Tool | Description |
