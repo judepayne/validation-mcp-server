@@ -101,8 +101,7 @@ mcp = FastMCP(
 )
 
 try:
-    _service = ValidationService()
-    _service.reload_logic()  # always start with fresh rules from GitHub
+    _service = ValidationService()  # constructor auto-reloads if cache is stale
     _init_error = None
 except Exception as e:
     _service = None
