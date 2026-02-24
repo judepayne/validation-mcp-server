@@ -5,7 +5,6 @@ import shutil
 import time
 import urllib.request
 import yaml
-from datetime import datetime, timezone
 from pathlib import Path
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -101,11 +100,18 @@ mcp = FastMCP(
 )
 
 try:
-    _service = ValidationService()  # constructor auto-reloads if cache is stale
+    _service = ValidationService()  # constructor auto-reloads if cache is stale; also adds logic_dir to sys.path
     _init_error = None
+    from entity_helpers.write import Writer
+    from entity_helpers.convert import Converter
+except ImportError:
+    Writer = None    # logic cache not yet populated; will be unavailable until reload
+    Converter = None
 except Exception as e:
     _service = None
     _init_error = str(e)
+    Writer = None
+    Converter = None
 
 
 def _get_service() -> ValidationService:
@@ -246,6 +252,51 @@ def generate_loan() -> str:
         "Do not flag or comment on the flaw in the output. The loan must still conform to the schema.\n\n"
         "Present the generated loan as a JSON dict ready to pass to validate() or batch_validate()."
     )
+
+
+@mcp.tool
+def convert_to_logical(physical_data: dict) -> dict:
+    """Convert a physical loan dict to its logical (flattened) representation.
+
+    The schema version is detected automatically from the '$schema' field in
+    the physical data. Physical field names and nested structure are replaced
+    by logical field names (e.g. 'financial.principal_amount' → 'principal',
+    'loan_number' → 'reference') and date strings are converted to date objects.
+    Fields absent from the physical data appear as null in the result.
+
+    Use list_logic_files() to browse the entity helper JSON files
+    (e.g. 'entity_helpers/loan_v1.json') to see the full logical↔physical
+    field mapping for each schema version.
+
+    Args:
+        physical_data: A raw loan dict as stored in JSON, including a '$schema' field.
+
+    Returns a flat dict keyed by logical field names.
+    """
+    schema_name = _detect_schema_name(physical_data)
+    return _make_converter(schema_name).convert_to_logical(physical_data)
+
+
+@mcp.tool
+def convert_to_physical(schema_name: str, logical_data: dict) -> dict:
+    """Convert a flat logical loan dict back to its nested physical representation.
+
+    Reverses convert_to_logical(): logical field names are mapped back to their
+    physical paths, the nested structure is reconstructed, and date objects are
+    serialised back to ISO strings. Null values are omitted from the output.
+
+    The schema_name (e.g. 'loan_v1', 'loan_v2') determines which field mapping
+    to use. If the logical dict was produced by convert_to_logical(), the correct
+    schema_name can be inferred from the '$schema' URL in the original physical
+    data, or by inspecting 'entity_helpers/loan_v*.json' via list_logic_files().
+
+    Args:
+        schema_name:  Schema identifier, e.g. 'loan_v1' or 'loan_v2'.
+        logical_data: Flat dict keyed by logical field names.
+
+    Returns a nested physical dict suitable for JSON serialisation.
+    """
+    return _make_converter(schema_name).convert_to_physical(logical_data)
 
 
 @mcp.tool
@@ -427,20 +478,6 @@ def _file_row(path: Path, now: float) -> dict:
     }
 
 
-def _now_iso() -> str:
-    """Return current UTC time as an ISO 8601 string with trailing Z."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _append_note(loan_dict: dict, text: str, operation_type: str = None) -> dict:
-    """Append a note entry to loan_dict['notes'], creating the list if absent."""
-    entry = {"datetime": _now_iso(), "text": text}
-    if operation_type:
-        entry["operation_type"] = operation_type
-    loan_dict.setdefault("notes", []).append(entry)
-    return loan_dict
-
-
 def _load_workflow_loan(relative_path: str):
     """Resolve path, safety-check, parse JSON. Returns (resolved_path, loan_dict)."""
     _ensure_workflow_dirs()
@@ -462,12 +499,29 @@ def _get_nested(d: dict, path: str):
     return d
 
 
-def _set_nested(d: dict, path: str, value) -> None:
-    """Set a value at a dot-notation path, creating intermediate dicts as needed."""
-    keys = path.split(".")
-    for key in keys[:-1]:
-        d = d.setdefault(key, {})
-    d[keys[-1]] = value
+def _make_writer(loan: dict) -> "Writer":
+    """Return a Writer for the given loan dict, raising ToolError if Writer is unavailable."""
+    if Writer is None:
+        raise ToolError(
+            "Writer is not available — logic cache is not loaded. Call load_logic() first."
+        )
+    return Writer(loan)
+
+
+def _make_converter(schema_name: str) -> "Converter":
+    """Return a Converter for the given schema name, raising ToolError if unavailable."""
+    if Converter is None:
+        raise ToolError(
+            "Converter is not available — logic cache is not loaded. Call load_logic() first."
+        )
+    return Converter(schema_name)
+
+
+def _detect_schema_name(entity_data: dict) -> str:
+    """Resolve the schema name (e.g. 'loan_v1') from entity data via the version registry."""
+    from entity_helpers.version_registry import get_registry
+    registry = get_registry()
+    return registry._resolve_schema_name(entity_data, None)
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +590,7 @@ def get_workflow() -> dict:
 
     ALWAYS call this tool when the user asks to see their whole workflow or all folders.
     ALWAYS display the result grouped by folder: render each folder as a bold heading
-    followed by its own markdown table with columns: Filename | Created | Updated
+    followed by its own markdown table with columns: Filename | Principal  |Created | Updated
     (no Folder column — the heading serves that purpose). Created shows how long ago
     the file was created (e.g. '2h 15m 30s ago'). Show '—' in the Updated column when
     updated_ago is null (file has not been modified since creation); otherwise show the
@@ -720,8 +774,9 @@ def validate_loan_file(relative_path: str, ruleset_name: str) -> dict:
     else:
         operation_type = "passed-validated"
         text = f"Validated against '{ruleset_name}': all rules passed"
-    _append_note(loan, text, operation_type)
-    resolved_path.write_text(json.dumps(loan, indent=2))
+    writer = _make_writer(loan)
+    writer.write(business_event=operation_type, message=text)
+    resolved_path.write_text(json.dumps(writer.data, indent=2))
     return {"validation_results": results, "note_appended": text}
 
 
@@ -755,8 +810,9 @@ def batch_validate_loan_files(relative_paths: list, ruleset_name: str) -> dict:
             else:
                 operation_type = "passed-validated"
                 text = f"Validated against '{ruleset_name}': all rules passed"
-            _append_note(loan, text, operation_type)
-            resolved_path.write_text(json.dumps(loan, indent=2))
+            writer = _make_writer(loan)
+            writer.write(business_event=operation_type, message=text)
+            resolved_path.write_text(json.dumps(writer.data, indent=2))
             results.append({
                 "relative_path": relative_path,
                 "validation_results": validation_results,
@@ -785,9 +841,10 @@ def add_note(relative_path: str, text: str, operation_type: str = "note") -> dic
             f"Invalid operation_type '{operation_type}'. Must be one of: {', '.join(valid_types)}"
         )
     resolved_path, loan = _load_workflow_loan(relative_path)
-    _append_note(loan, text, operation_type)
-    resolved_path.write_text(json.dumps(loan, indent=2))
-    return loan["notes"][-1]
+    writer = _make_writer(loan)
+    writer.write(business_event=operation_type, message=text)
+    resolved_path.write_text(json.dumps(writer.data, indent=2))
+    return writer.data["notes"][-1]
 
 
 @mcp.tool
@@ -810,16 +867,15 @@ def edit_loan_file(relative_path: str, changes: dict) -> dict:
     and 'note_appended' (the audit note text).
     """
     resolved_path, loan = _load_workflow_loan(relative_path)
-    change_records = []
-    for field_path, new_value in changes.items():
-        old_value = _get_nested(loan, field_path)
-        _set_nested(loan, field_path, new_value)
-        change_records.append({"field": field_path, "old": old_value, "new": new_value})
-    parts = [f"{c['field']}: {c['old']} → {c['new']}" for c in change_records]
-    text = "Edited: " + "; ".join(parts)
-    _append_note(loan, text, "edited")
-    resolved_path.write_text(json.dumps(loan, indent=2))
-    return {"status": "updated", "changes": change_records, "note_appended": text}
+    # Capture old values before mutation for the return dict
+    change_records = [
+        {"field": fp, "old": _get_nested(loan, fp), "new": nv}
+        for fp, nv in changes.items()
+    ]
+    writer = _make_writer(loan)
+    note_text = writer.write(business_event="edited", message="Edited", changes=changes)
+    resolved_path.write_text(json.dumps(writer.data, indent=2))
+    return {"status": "updated", "changes": change_records, "note_appended": note_text}
 
 
 @mcp.resource(

@@ -37,7 +37,7 @@ Replace `/path/to/validation-mcp-server/server.py` with the actual path on your 
 
 ## Tools
 
-The server exposes 26 tools, grouped by concern:
+The server exposes 28 tools, grouped by concern:
 
 ### Rule discovery
 
@@ -72,6 +72,15 @@ The server exposes 26 tools, grouped by concern:
 |------|-------------|
 | `example_loan` | Return a valid example loan record for exploration |
 | `generate_loan` | Instructions for the LLM to generate a realistic test loan grounded in the actual schemas and rules |
+
+### Entity conversion
+
+Converts between the **physical** representation (nested JSON as stored on disk, with versioned field names) and the **logical** representation (flat dict with stable logical field names and typed values). The full field mapping for each schema version is in `entity_helpers/loan_v*.json` — browse with `list_logic_files()`.
+
+| Tool | Description |
+|------|-------------|
+| `convert_to_logical` | Convert a physical loan dict to a flat logical dict; schema auto-detected from `$schema` |
+| `convert_to_physical` | Convert a flat logical dict back to a nested physical dict; schema name supplied explicitly |
 
 ### Workflow — file operations
 
