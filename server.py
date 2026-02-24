@@ -11,7 +11,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.apps import AppConfig, ResourceCSP
 from validation_lib import ValidationService
 
-LOGIC_CACHE_DIR = Path("/tmp/validation-lib-py/logic")
+LOGIC_CACHE_DIR = Path("/tmp/validation-lib/logic")
 
 WORKFLOW_DIR = Path("/tmp/validation-lib/workflow")
 WORKFLOW_FOLDERS = ["inbox", "outbox", "hold", "escalate"]
