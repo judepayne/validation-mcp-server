@@ -38,9 +38,10 @@ mcp = FastMCP(
         "- Rulesets: named collections of rules (e.g. 'quick', 'thorough'). Each ruleset groups "
         "related validation checks for a particular domain or data type.\n"
         "- Rules: individual validation checks within a ruleset. Each rule tests one aspect "
-        "of the data and returns one of four statuses: PASS, FAIL, NORUN (rule could not run, "
-        "typically because required related data was unavailable), or ERROR (execution failure). "
-        "Rules may be hierarchical — a child rule only runs if its parent passes, so a NORUN "
+        "of the data and returns one of five statuses: PASS, WARN (advisory — passes but flags "
+        "a condition worth reviewing), FAIL, NORUN (rule could not run, typically because required "
+        "related data was unavailable), or ERROR (execution failure). "
+        "Rules may be hierarchical — a child rule only runs if its parent passes or warns; a NORUN "
         "on a child rule may simply mean its parent failed.\n"
         "- Logic cache: rule logic is fetched from a central source and cached locally. "
         "The cache must be populated before validation can run.\n\n"
@@ -163,7 +164,7 @@ def validate(entity_type: str, entity_data: dict, ruleset_name: str) -> list:
                       to find valid names, e.g. 'quick' or 'thorough').
 
     Returns a list of rule result dicts, each with 'rule_id', 'description',
-    'status' (PASS/FAIL/NORUN/ERROR), and an optional 'message'.
+    'status' (PASS/WARN/FAIL/NORUN/ERROR), and an optional 'message'.
     """
     return _get_service().validate(entity_type, entity_data, ruleset_name)
 
@@ -775,10 +776,14 @@ def validate_loan_file(relative_path: str, ruleset_name: str) -> dict:
     """
     resolved_path, loan = _load_workflow_loan(relative_path)
     results = _get_service().validate("loan", loan, ruleset_name)
-    failed = [r["rule_id"] for r in results if r.get("status") == "FAIL"]
+    failed  = [r["rule_id"] for r in results if r.get("status") == "FAIL"]
+    warned  = [r["rule_id"] for r in results if r.get("status") == "WARN"]
     if failed:
         operation_type = "failed-validated"
         text = f"Validated against '{ruleset_name}': FAIL ({', '.join(failed)} failed)"
+    elif warned:
+        operation_type = "passed-validated"
+        text = f"Validated against '{ruleset_name}': passed with warnings ({', '.join(warned)} warned)"
     else:
         operation_type = "passed-validated"
         text = f"Validated against '{ruleset_name}': all rules passed"
@@ -811,10 +816,14 @@ def batch_validate_loan_files(relative_paths: list, ruleset_name: str) -> dict:
         try:
             resolved_path, loan = _load_workflow_loan(relative_path)
             validation_results = _get_service().validate("loan", loan, ruleset_name)
-            failed = [r["rule_id"] for r in validation_results if r.get("status") == "FAIL"]
+            failed  = [r["rule_id"] for r in validation_results if r.get("status") == "FAIL"]
+            warned  = [r["rule_id"] for r in validation_results if r.get("status") == "WARN"]
             if failed:
                 operation_type = "failed-validated"
                 text = f"Validated against '{ruleset_name}': FAIL ({', '.join(failed)} failed)"
+            elif warned:
+                operation_type = "passed-validated"
+                text = f"Validated against '{ruleset_name}': passed with warnings ({', '.join(warned)} warned)"
             else:
                 operation_type = "passed-validated"
                 text = f"Validated against '{ruleset_name}': all rules passed"

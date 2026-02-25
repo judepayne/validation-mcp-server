@@ -25,3 +25,6 @@ htmlcov/
 
 # Emacs backup files
 *~
+
+# Local dev scripts
+workflow-status.sh
