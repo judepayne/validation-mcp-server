@@ -782,7 +782,7 @@ def validate_loan_file(relative_path: str, ruleset_name: str) -> dict:
         operation_type = "failed-validated"
         text = f"Validated against '{ruleset_name}': FAIL ({', '.join(failed)} failed)"
     elif warned:
-        operation_type = "passed-validated"
+        operation_type = "passed-with-warnings"
         text = f"Validated against '{ruleset_name}': passed with warnings ({', '.join(warned)} warned)"
     else:
         operation_type = "passed-validated"
@@ -822,7 +822,7 @@ def batch_validate_loan_files(relative_paths: list, ruleset_name: str) -> dict:
                 operation_type = "failed-validated"
                 text = f"Validated against '{ruleset_name}': FAIL ({', '.join(failed)} failed)"
             elif warned:
-                operation_type = "passed-validated"
+                operation_type = "passed-with-warnings"
                 text = f"Validated against '{ruleset_name}': passed with warnings ({', '.join(warned)} warned)"
             else:
                 operation_type = "passed-validated"
@@ -852,7 +852,7 @@ def add_note(relative_path: str, text: str, operation_type: str = "note") -> dic
 
     Returns the appended note entry dict.
     """
-    valid_types = ["note", "passed-validated", "failed-validated", "edited"]
+    valid_types = ["note", "passed-validated", "passed-with-warnings", "failed-validated", "edited"]
     if operation_type not in valid_types:
         raise ToolError(
             f"Invalid operation_type '{operation_type}'. Must be one of: {', '.join(valid_types)}"
