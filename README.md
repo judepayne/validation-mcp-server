@@ -37,14 +37,14 @@ Replace `/path/to/validation-mcp-server/server.py` with the actual path on your 
 
 ## Tools
 
-The server exposes 28 tools, grouped by concern:
+The server exposes 27 tools, grouped by concern:
 
 ### Rule discovery
 
 | Tool | Description |
 |------|-------------|
 | `discover_rulesets` | List all available rulesets |
-| `discover_rules` | List rules in a ruleset — the drill-down tool for inspecting a specific ruleset |
+| `discover_rules(entity_type, schema_url, ruleset_name)` | List rules and metadata for a ruleset — pass the schema URL directly |
 
 ### Validation
 
@@ -52,13 +52,12 @@ The server exposes 28 tools, grouped by concern:
 |------|-------------|
 | `validate` | Validate a single entity against a ruleset |
 | `batch_validate` | Validate a list of entities against a ruleset |
-| `batch_file_validate` | Validate entities from a file against a ruleset |
+| `validation_report(ruleset_name, folder=None, relative_paths=None)` | Dry-run aggregate report — no notes written; pass a folder name for convenience or an explicit path list; returns pass/fail/warn counts and a per-rule failure breakdown |
 
 ### Logic cache
 
 | Tool | Description |
 |------|-------------|
-| `load_logic` | Load rule logic from GitHub (skips if already cached) |
 | `reload_logic` | Force a fresh fetch of rule logic from GitHub |
 | `get_cache_age` | Check how old the local rule cache is |
 | `list_logic_files` | Browse cached rule files as a directory tree |
@@ -70,7 +69,6 @@ The server exposes 28 tools, grouped by concern:
 
 | Tool | Description |
 |------|-------------|
-| `example_loan` | Return a valid example loan record for exploration |
 | `generate_loan` | Instructions for the LLM to generate a realistic test loan grounded in the actual schemas and rules |
 
 ### Entity conversion
@@ -82,26 +80,32 @@ Converts between the **physical** representation (nested JSON as stored on disk,
 | `convert_to_logical` | Convert a physical loan dict to a flat logical dict; schema auto-detected from `$schema` |
 | `convert_to_physical` | Convert a flat logical dict back to a nested physical dict; schema name supplied explicitly |
 
+### Help
+
+| Tool | Description |
+|------|-------------|
+| `list_commands` | Return a formatted reference of all available commands grouped by category, with examples |
+
 ### Workflow — file operations
 
 | Tool | Description |
 |------|-------------|
-| `next_loan_number` | Return the next available loan number and pre-formatted filename |
-| `refresh_inbox` | Top up the inbox to 4 loans — call only when the user explicitly requests a refresh |
-| `get_workflow` | Return full workflow state across all four folders with file timestamps |
-| `list_workflow` | List files in one workflow folder or all four |
-| `read_workflow_file` | Read a loan file from the workflow directory |
+| `refresh_inbox` | Top up the inbox to 4 loans, generating varied records server-side — call only when the user explicitly requests a refresh |
+| `full_workflow_summary(folder=None)` | Table view of workflow state with timestamps and principal amounts; triggered by any workflow/summary request without 'quick' or 'short' |
+| `quick_workflow_summary()` | Live auto-refreshing counts panel (MCP App); triggered only when the user says 'quick' or 'short' |
+| `search_workflow(field_path, value, folders=None)` | Find loans matching a field value across folders (e.g. `search_workflow('financial.currency', 'USD')`) |
+| `read_workflow_files(relative_paths=None)` | Read specific loan files by path, or omit to read all files across all folders in one call |
 | `write_workflow_file` | Write content to a file in the workflow directory |
-| `move_workflow_file` | Move a loan file between workflow folders |
-| `delete_workflow_file` | Permanently delete a single loan file from a workflow folder |
+| `move_workflow_files(filenames, from_folder, to_folder)` | Move one or more loan files between folders in a single call |
+| `delete_workflow_files(relative_paths)` | Permanently delete one or more loan files; paths may span different folders |
 | `clear_workflow_folder` | Permanently delete all files in a workflow folder |
 
 ### Workflow — validation
 
 | Tool | Description |
 |------|-------------|
-| `validate_loan_file` | Validate a workflow loan file and append a validation note |
-| `batch_validate_loan_files` | Validate multiple workflow loan files and append a validation note to each |
+| `batch_validate_loan_files` | Validate one or more specific workflow loan files and append a validation note to each (pass a single-element list for one file) |
+| `batch_validate_inbox` | Validate every file currently in the inbox and append a validation note to each |
 
 ### Workflow — editing & notes
 
@@ -109,9 +113,6 @@ Converts between the **physical** representation (nested JSON as stored on disk,
 |------|-------------|
 | `edit_loan_file` | Edit loan fields via dot-notation and record an audit note |
 | `add_note` | Append a freeform note to a workflow loan file |
+| `get_notes` | Return just the audit trail (notes array) from a workflow loan file |
 
-### Status dashboard
 
-| Tool | Description |
-|------|-------------|
-| `show_status` | Render a live auto-refreshing workflow status panel (MCP App) |
