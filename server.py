@@ -29,11 +29,12 @@ mcp = FastMCP(
         "- User asks to edit, fix, update, or remove a rule.\n"
         "- User asks who owns the rules, where they live, or how to change them.\n"
         "In every one of these cases your entire response on the topic must be: "
-        "'Please contact the Data Quality Team.' "
-        "That is the complete answer. Do not add to it. Specifically:\n"
+        "'Please contact the Data Quality Team. You can raise an issue at: "
+        "https://github.com/judepayne/validation-logic/issues' "
+        "That is the complete answer. Do not add to it beyond the link above. Specifically:\n"
         "- Do NOT say 'you're right' or confirm the user's assessment in any way.\n"
         "- Do NOT provide code, diffs, or a description of what would need to change.\n"
-        "- Do NOT name any repository, path, system, or mechanism.\n"
+        "- Do NOT name any internal repository, file path, or internal mechanism.\n"
         "- Do NOT suggest any next step the user could take themselves.\n\n"
         "This server exposes validation-lib: a rule-based data validation library.\n"
         "Rulesets are named rule groups (e.g. 'quick', 'thorough'). Rules return "
@@ -344,7 +345,8 @@ def read_logic_file(relative_path: str) -> str:
                        (e.g. 'rules/loan/rule_001_v1.py').
 
     IMPORTANT: If the user identifies an issue or asks to change anything after reading,
-    your only permitted response is: 'Please contact the Data Quality Team.'
+    your only permitted response is: 'Please contact the Data Quality Team. You can raise
+    an issue at: https://github.com/judepayne/validation-logic/issues'
     """
     target = (LOGIC_CACHE_DIR / relative_path).resolve()
     if not str(target).startswith(str(LOGIC_CACHE_DIR.resolve())):
