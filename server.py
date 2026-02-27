@@ -102,8 +102,11 @@ def _cache_schemas():
     for url in schema_urls:
         filename = url.split("/")[-1]
         dest = models_dir / filename
-        with urllib.request.urlopen(url) as response:
-            dest.write_bytes(response.read())
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                dest.write_bytes(response.read())
+        except Exception:
+            pass  # Non-fatal: schema browse still works from whatever was cached
 
 
 @mcp.tool
@@ -455,10 +458,13 @@ def _detect_schema_name(entity_data: dict) -> str:
 
 
 def _generate_loan_variant(loan_num: int) -> dict:
-    """Generate a realistic, varied loan record seeded on the loan number.
+    """Generate a realistic, varied loan record using system randomness.
 
-    Every 4th loan (loan_num % 4 == 3) contains a deliberate flaw — maturity date
-    before origination — so that validation results are interesting.
+    Loan variety by position (loan_num % 4):
+      0 — normal active loan
+      1 — paid-off loan (zero balance, exercises rule_004)
+      2 — normal active loan with high balance ratio (exercises rule_005 WARN)
+      3 — deliberate flaw: maturity before origination (exercises rule_002 FAIL)
     """
     rng = random.Random()
 
@@ -478,18 +484,33 @@ def _generate_loan_variant(loan_num: int) -> dict:
     except ValueError:
         first_payment = date(fp_year, fp_month, 28)
 
-    if loan_num % 4 == 3:
-        maturity = orig - timedelta(days=rng.randint(30, 365))
-
     principal = rng.choice(
         [100_000, 250_000, 500_000, 750_000, 1_000_000, 1_500_000, 2_000_000]
     )
-    outstanding = round(principal * rng.uniform(0.5, 1.0))
     interest_rate = round(rng.uniform(0.02, 0.12), 4)
     currency = rng.choice(["USD", "USD", "USD", "GBP", "EUR"])
     interest_type = rng.choice(["fixed", "fixed", "variable"])
     client_num = rng.randint(1, 20)
     facility_num = rng.randint(100, 999)
+
+    variant = loan_num % 4
+    if variant == 3:
+        # Deliberate flaw: maturity before origination → rule_002 FAIL
+        maturity = orig - timedelta(days=rng.randint(30, 365))
+        outstanding = round(principal * rng.uniform(0.5, 0.95))
+        status = "active"
+    elif variant == 1:
+        # Paid-off loan: zero balance → exercises rule_004 balance constraints
+        outstanding = 0
+        status = "paid_off"
+    elif variant == 2:
+        # High balance ratio (>85%) → rule_005 WARN
+        outstanding = round(principal * rng.uniform(0.86, 1.0))
+        status = rng.choice(["active", "pending"])
+    else:
+        # Normal active loan
+        outstanding = round(principal * rng.uniform(0.1, 0.80))
+        status = rng.choice(["active", "active", "pending", "defaulted"])
 
     return {
         "$schema": "https://raw.githubusercontent.com/judepayne/validation-logic/main/models/loan.schema.v1.0.0.json",
@@ -509,7 +530,7 @@ def _generate_loan_variant(loan_num: int) -> dict:
             "maturity_date": maturity.isoformat(),
             "first_payment_date": first_payment.isoformat(),
         },
-        "status": rng.choice(["active", "active", "active", "pending"]),
+        "status": status,
         "notes": [],
     }
 
@@ -820,6 +841,16 @@ def clear_workflow_folder(folder: str) -> dict:
     return {"status": "cleared", "folder": folder, "deleted_count": len(files)}
 
 
+def _flatten_results(results: list) -> list:
+    """Recursively collect all rule results including nested children."""
+    flat = []
+    for r in results:
+        flat.append(r)
+        if r.get("children"):
+            flat.extend(_flatten_results(r["children"]))
+    return flat
+
+
 def _run_batch_validation(relative_paths: list, ruleset_name: str) -> list:
     """Validate and annotate a list of workflow loan files. Returns a results list."""
     results = []
@@ -827,12 +858,9 @@ def _run_batch_validation(relative_paths: list, ruleset_name: str) -> list:
         try:
             resolved_path, loan = _load_workflow_loan(relative_path)
             validation_results = _get_service().validate("loan", loan, ruleset_name)
-            failed = [
-                r["rule_id"] for r in validation_results if r.get("status") == "FAIL"
-            ]
-            warned = [
-                r["rule_id"] for r in validation_results if r.get("status") == "WARN"
-            ]
+            all_results = _flatten_results(validation_results)
+            failed = [r["rule_id"] for r in all_results if r.get("status") == "FAIL"]
+            warned = [r["rule_id"] for r in all_results if r.get("status") == "WARN"]
             if failed:
                 operation_type = "failed-validated"
                 text = f"Validated against '{ruleset_name}': FAIL ({', '.join(failed)} failed)"
@@ -926,12 +954,13 @@ def validation_report(
             "passed": 0,
             "warned_only": 0,
             "failed": 0,
-            "errors": 0,
+            "errors": [],
             "rule_failure_counts": {},
             "loans_needing_attention": [],
         }
     total = len(relative_paths)
-    passed = warned_only = failed = errors = 0
+    passed = warned_only = failed = 0
+    errors: list = []
     rule_failure_counts: dict = {}
     loans_needing_attention = []
 
@@ -939,8 +968,9 @@ def validation_report(
         try:
             _, loan = _load_workflow_loan(relative_path)
             results = _get_service().validate("loan", loan, ruleset_name)
-            fail_results = [r for r in results if r.get("status") == "FAIL"]
-            warn_results = [r for r in results if r.get("status") == "WARN"]
+            all_results = _flatten_results(results)
+            fail_results = [r for r in all_results if r.get("status") == "FAIL"]
+            warn_results = [r for r in all_results if r.get("status") == "WARN"]
             if fail_results:
                 failed += 1
                 failed_rule_ids = [r["rule_id"] for r in fail_results]
@@ -961,8 +991,8 @@ def validation_report(
                 warned_only += 1
             else:
                 passed += 1
-        except Exception:
-            errors += 1
+        except Exception as e:
+            errors.append({"relative_path": relative_path, "error": str(e)})
 
     return {
         "total": total,
@@ -1076,12 +1106,13 @@ def workflow_status_ui() -> str:
     await app.requestDisplayMode({ mode: "pip" });
   }
 
-  // Poll for updates every 10 seconds
   async function refresh() {
     const result = await app.callServerTool({ name: "full_workflow_summary", arguments: {} });
     updateDisplay(result.content);
   }
 
+  // Fetch immediately on load, then poll every 5 seconds
+  await refresh();
   setInterval(refresh, 5000);
 </script>
 </body></html>"""
