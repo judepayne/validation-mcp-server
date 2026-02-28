@@ -6,6 +6,7 @@ import shutil
 import time
 import urllib.request
 from datetime import date, timedelta
+from typing import Optional
 import yaml
 from pathlib import Path
 from fastmcp import FastMCP
@@ -570,7 +571,7 @@ def refresh_inbox() -> dict:
 
 
 @mcp.tool
-def full_workflow_summary(folder: str = None) -> dict:
+def full_workflow_summary(folder: Optional[str] = None) -> dict:
     """Return workflow state with file timestamps and principal amounts, displayed as a table.
 
     Trigger: any workflow/summary request that does NOT contain 'quick' or 'short'
@@ -609,7 +610,9 @@ def full_workflow_summary(folder: str = None) -> dict:
 
 
 @mcp.tool
-def search_workflow(field_path: str, value: str, folders: list = None) -> dict:
+def search_workflow(
+    field_path: str, value: str, folders: Optional[list] = None
+) -> dict:
     """Find workflow loan files where a field matches a given value.
 
     Args:
@@ -645,7 +648,7 @@ def search_workflow(field_path: str, value: str, folders: list = None) -> dict:
 
 
 @mcp.tool
-def read_workflow_files(relative_paths: list = None) -> list:
+def read_workflow_files(relative_paths: Optional[list] = None) -> list:
     """Read and parse one or more workflow loan files.
 
     Args:
@@ -924,7 +927,9 @@ def batch_validate_inbox(ruleset_name: str) -> dict:
 
 @mcp.tool
 def validation_report(
-    ruleset_name: str, relative_paths: list = None, folder: str = None
+    ruleset_name: str,
+    relative_paths: Optional[list] = None,
+    folder: Optional[str] = None,
 ) -> dict:
     """Dry-run validation across workflow loan files — no notes written.
 
