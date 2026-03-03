@@ -7,6 +7,7 @@ import time
 import urllib.request
 from datetime import date, timedelta
 from typing import Optional
+import requests
 import yaml
 from pathlib import Path
 from fastmcp import FastMCP
@@ -1136,6 +1137,58 @@ def quick_workflow_summary() -> str:
     Do not add any text summary or commentary after calling this tool.
     """
     return "ok"
+
+
+@mcp.tool
+def create_github_issue(
+    title: str,
+    body: str,
+    repo: str = "judepayne/validation-logic",
+    labels: Optional[list] = None,
+) -> dict:
+    """Create a GitHub issue on a validation project repository.
+
+    Args:
+        title: Issue title.
+        body: Issue body (markdown supported).
+        repo: Repository in owner/name format. Defaults to validation-logic
+              (the rules repo owned by the Data Quality Team).
+        labels: Optional list of label strings to apply.
+
+    Returns:
+        Dict with 'issue_number' and 'url' of the created issue.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise ToolError(
+            "GITHUB_TOKEN environment variable is not set. "
+            "Set it to a GitHub personal access token with issues:write scope."
+        )
+
+    response = requests.post(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={"title": title, "body": body, "labels": labels or []},
+        timeout=10,
+    )
+
+    if response.status_code == 401:
+        raise ToolError("GitHub token is invalid or expired.")
+    if response.status_code == 403:
+        raise ToolError("GitHub token lacks permission to create issues on this repo.")
+    if response.status_code == 404:
+        raise ToolError(
+            f"Repository '{repo}' not found or not accessible with this token."
+        )
+
+    response.raise_for_status()
+
+    data = response.json()
+    return {"issue_number": data["number"], "url": data["html_url"]}
 
 
 if __name__ == "__main__":
