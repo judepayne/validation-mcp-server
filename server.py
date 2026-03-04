@@ -16,6 +16,10 @@ from fastmcp.server.apps import AppConfig, ResourceCSP
 from validation_lib import ValidationService
 
 LOGIC_CACHE_DIR = Path("/tmp/validation-lib/logic")
+_DQ_ISSUE_TEMPLATE_URL = (
+    "https://raw.githubusercontent.com/judepayne/validation-logic/main"
+    "/.github/ISSUE_TEMPLATE/data-quality-issue.yml"
+)
 
 WORKFLOW_DIR = Path("/tmp/validation-lib/workflow")
 WORKFLOW_FOLDERS = ["inbox", "outbox", "hold", "escalate"]
@@ -207,7 +211,10 @@ def list_commands() -> str:
         "`get_notes(relative_path)` — return the audit trail from a loan file\n\n"
         "### Workflow Summary\n"
         "`full_workflow_summary(folder=None)` — table view; triggered by any workflow/summary request\n"
-        "`quick_workflow_summary()` — live counts panel; triggered ONLY by 'quick' or 'short'\n"
+        "`quick_workflow_summary()` — live counts panel; triggered ONLY by 'quick' or 'short'\n\n"
+        "### Data Quality Issues\n"
+        "`get_dq_issue_template()` — fetch the required format before raising an issue\n"
+        "`create_github_issue(title, body)` — raise an issue with the Data Quality Team\n"
     )
 
 
@@ -1139,6 +1146,58 @@ def quick_workflow_summary() -> str:
     return "ok"
 
 
+def _fetch_issue_template() -> str:
+    """Fetch the DQ issue template from GitHub and return a markdown format guide."""
+    response = requests.get(_DQ_ISSUE_TEMPLATE_URL, timeout=10)
+    response.raise_for_status()
+    template = yaml.safe_load(response.text)
+
+    lines = [
+        f"# {template['name']}",
+        f"_{template.get('description', '')}_",
+        "",
+        f"**Default title format:** `{template.get('title', '')}`",
+        "",
+        "## Fields",
+        "",
+    ]
+    for field in template.get("body", []):
+        field_type = field.get("type")
+        attrs = field.get("attributes", {})
+        required = field.get("validations", {}).get("required", False)
+        label = attrs.get("label", "")
+        description = attrs.get("description", "")
+        req_marker = " *(required)*" if required else " *(optional)*"
+
+        lines.append(f"### {label}{req_marker}")
+        if description:
+            lines.append(description)
+        if field_type == "dropdown":
+            lines.append(f"Options: {', '.join(attrs.get('options', []))}")
+        placeholder = attrs.get("placeholder", "")
+        if placeholder:
+            lines.append(f"Example:\n```\n{placeholder.strip()}\n```")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool
+def get_dq_issue_template() -> str:
+    """Fetch the Data Quality Team's issue template from GitHub.
+
+    Call this before create_github_issue() to understand the required fields
+    and format. The template is fetched live so it is always up to date.
+
+    Returns a markdown guide describing each field, its type, and whether
+    it is required.
+    """
+    try:
+        return _fetch_issue_template()
+    except Exception as e:
+        raise ToolError(f"Failed to fetch issue template: {e}") from e
+
+
 @mcp.tool
 def create_github_issue(
     title: str,
@@ -1148,9 +1207,12 @@ def create_github_issue(
 ) -> dict:
     """Create a GitHub issue on a validation project repository.
 
+    Call get_dq_issue_template() first to retrieve the required fields and
+    format. The body must address all required fields from the template.
+
     Args:
         title: Issue title.
-        body: Issue body (markdown supported).
+        body: Issue body (markdown). Must include all required fields from the template.
         repo: Repository in owner/name format. Defaults to validation-logic
               (the rules repo owned by the Data Quality Team).
         labels: Optional list of label strings to apply.
