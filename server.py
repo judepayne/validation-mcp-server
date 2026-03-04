@@ -1189,6 +1189,24 @@ def get_dq_issue_template() -> str:
     Call this before create_github_issue() to understand the required fields
     and format. The template is fetched live so it is always up to date.
 
+    After fetching the template, follow this process before posting:
+
+    1. GATHER information. For each required field in the template, ensure you
+       have a real value from the user or the current context. Do not guess or
+       use placeholder text. In particular:
+       - If the template has a contact/name field and you do not know the user's
+         name and team, ask them explicitly before drafting.
+       - If the template asks for an example, make it self-contained: include
+         all relevant data (IDs, field values, actual vs expected outcome) so a
+         reviewer with no prior context can understand the problem without
+         needing access to any shared system or conversation history.
+
+    2. DRAFT the complete issue (title + all fields filled with real values)
+       and show it to the user in full.
+
+    3. ASK for confirmation: "Anything to change? Shall I post this?" — and
+       wait for explicit approval before calling create_github_issue().
+
     Returns a markdown guide describing each field, its type, and whether
     it is required.
     """
@@ -1207,12 +1225,23 @@ def create_github_issue(
 ) -> dict:
     """Create a GitHub issue on a validation project repository.
 
-    Call get_dq_issue_template() first to retrieve the required fields and
-    format. The body must address all required fields from the template.
+    IMPORTANT — do not call this tool until the user has explicitly confirmed
+    the draft. Follow the prepare-draft-confirm process in get_dq_issue_template()
+    first.
+
+    Before calling, verify:
+    - Every field contains a real value — no placeholder text such as
+      "[Your Name]", "YOUR_VALUE_HERE", or template example text left in place.
+    - The contact/author field (if present) contains the actual user's name and
+      team, not an example from the template.
+    - Any example in the body is self-contained and does not rely on shared
+      context (e.g. include full field values, not just "see Loan 4").
+    - The user has read the draft and said yes (or similar) to posting it.
 
     Args:
         title: Issue title.
-        body: Issue body (markdown). Must include all required fields from the template.
+        body: Issue body (markdown). All required fields must be filled with
+              real values.
         repo: Repository in owner/name format. Defaults to validation-logic
               (the rules repo owned by the Data Quality Team).
         labels: Optional list of label strings to apply.
